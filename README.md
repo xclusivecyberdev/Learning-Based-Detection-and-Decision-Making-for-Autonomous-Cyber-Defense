@@ -12,9 +12,11 @@ M.Tech Cybersecurity (In View) — Federal University of Technology, Akure
 
 This project explores the design of an intelligent cybersecurity system capable of integrating learning-based threat detection with adaptive decision-making mechanisms. The system aims to move beyond static, rule-based defenses by introducing agentic behaviour — where a system can perceive, reason, and act autonomously in response to evolving cyber threats.
 
-**Central Hypothesis:** *Reinforcement learning-based response policies can outperform static rule-based approaches in reducing false positives and improving response latency in cyber threat mitigation, because a learned policy adapts continuously to the confidence distribution of the detection model — whereas fixed threshold rules cannot.*
+**This work reframes cyber defense as a sequential decision-making problem, where response policies are learned directly from detection uncertainty distributions rather than manually defined thresholds.** The system models cyber defense as an autonomous task management problem, where the agent must prioritise, defer, or escalate actions under uncertainty and system constraints — framing the problem in terms directly aligned with agentic AI research.
 
-Preliminary experiments indicate stable convergence behaviour of the reinforcement learning agent in simulated environments, and consistent validation loss reduction in the detection model across early training epochs — providing initial evidence that the coupled architecture behaves as theoretically expected.
+**Central Hypothesis:** *This work hypothesises that reinforcement learning-based response policies can reduce false positive rates and response latency compared to static rule-based intrusion response systems, because a learned policy adapts its action selection to the confidence distribution of the detection model rather than applying fixed thresholds uniformly across all threat types.*
+
+Preliminary experiments on a stratified subset of the dataset show consistent validation loss reduction in the detection model and expected reward improvement trends in the RL agent, indicating stable training dynamics.
 
 This work contributes toward the development of autonomous cyber defense agents aligned with emerging research in agentic AI and self-adaptive systems.
 
@@ -24,9 +26,9 @@ This work contributes toward the development of autonomous cyber defense agents 
 
 Traditional cybersecurity systems rely heavily on predefined rules and human intervention, making them less effective against rapidly evolving and unknown threats. Recent advances in artificial intelligence suggest the need for systems that can dynamically adapt, learn from data, and make context-aware decisions.
 
-This project investigates how learning-based models can be integrated with decision-making frameworks to enable autonomous, real-time cyber defense capabilities. The core research question is:
+This project investigates how learning-based detection models can be coupled with adaptive response policies to enable autonomous, real-time cyber defense. The core research question is:
 
-> *Does integrating a deep learning-based anomaly detector with a reinforcement learning response agent produce measurably superior outcomes — specifically lower false positive rates and reduced mean time to respond — compared to static threshold policies?*
+> *Does replacing a static threshold response policy with a reinforcement learning-based decision agent produce measurably lower false positive rates and reduced mean time to respond on the same detection model outputs?*
 
 ---
 
@@ -41,61 +43,56 @@ Data Collection Layer
 Feature Extraction Module
         │
         ▼
-Learning-Based Detection Engine       ←  BiLSTM + CNN (CICIDS2017)
-        │
+Learning-Based Detection Engine       ←  BiLSTM + CNN (CICIDS2017, 15 classes)
+        │   outputs threat probability vector (18-dim state)
         ▼
-Decision-Making Engine                ←  Dueling DQN Agent
+Decision-Making Engine                ←  Dueling DQN — learns policy from reward signal
         │
         ▼
 Autonomous Response Module            ←  IGNORE | ALERT | BLOCK | ESCALATE
         │
         ▼
-Feedback Loop                         ←  Reward signal → policy update
+Feedback Loop                         ←  Reward (severity-scaled) → policy update
 ```
 
 **Data Collection Layer** — captures network flow logs, system events, and traffic behaviour.
 
-**Feature Extraction Module** — transforms raw flows into 78-dimensional normalised feature vectors using the CICIDS2017 schema; sliding windows of 50 timesteps are created for sequential modelling.
+**Feature Extraction Module** — transforms raw flows into 78-dimensional normalised feature vectors; sliding windows of 50 timesteps are constructed for sequential modelling.
 
-**Learning-Based Detection Engine** — a BiLSTM encoder captures temporal dependencies in flow sequences, while a 1D-CNN extracts spatial feature co-occurrences. The two representations are fused into a 15-class threat classifier trained with Focal Loss to address class imbalance.
+**Learning-Based Detection Engine** — a BiLSTM encoder captures temporal dependencies in flow sequences; a 1D-CNN extracts spatial feature co-occurrences. Both representations are fused into a 15-class threat classifier trained with Focal Loss to address class imbalance.
 
-**Decision-Making Engine** — a Dueling DQN agent observes the detection model's output probability vector alongside system context features, and learns an optimal response policy through interaction with a simulated cyber defense environment.
+**Decision-Making Engine** — a Dueling DQN agent observes the detection model's output probability vector as its state, and learns a response policy through experience in a reward-shaped simulated environment. Crucially, the policy is *learned* — not coded — which allows it to adapt its behaviour to the detector's confidence distribution across threat types.
 
-**Autonomous Response Module** — executes the chosen action (ignore, alert, firewall block, or escalate to human analyst) and logs a structured, human-readable justification for every decision.
+**Autonomous Response Module** — executes the chosen action and logs a structured, human-readable justification for every decision.
 
-**Feedback Loop** — the reward signal (shaped by threat severity and action correctness) continuously updates the agent's policy, enabling adaptation over time.
+**Feedback Loop** — a severity-scaled reward signal updates the agent's policy continuously, distinguishing the system from static alternatives.
 
 ---
 
 ## Key Contributions
 
-- Integration of learning-based detection with a reinforcement learning decision-making policy
-- Prototype design for an autonomous cyber defense agent following the Perceive → Reason → Act → Reflect cycle
-- Exploration of agentic AI principles applied to cybersecurity — treating response as a *learned* behaviour rather than a hard-coded ruleset
-- Ablation study comparing LSTM-only, CNN-only, and hybrid detection architectures
-- Structured explainability layer: every autonomous decision is accompanied by a traceable, natural-language rationale
-- Real-time threat analysis and response simulation using the CICIDS2017 benchmark
+- **Novel framing**: Reframes intrusion response as a sequential decision-making problem under uncertainty, where the action policy is a learned function of detection confidence — not a fixed threshold
+- Integration of deep learning-based detection with a reinforcement learning response policy as a unified agentic loop
+- Ablation study comparing LSTM-only, CNN-only, and hybrid detection architectures to isolate each component's contribution
+- Structured explainability: every autonomous decision is accompanied by a traceable, natural-language rationale derived from SHAP feature attribution
+- Real-time threat simulation using the CICIDS2017 benchmark (2.8M flow records, 15 attack classes)
 
 ---
 
 ## Proposed Experiment
 
-To evaluate system effectiveness:
+**Detection model evaluation** — BiLSTM+CNN trained on CICIDS2017 (70/15/15 stratified split). Metrics: accuracy, macro F1, ROC-AUC, false positive rate per class. Ablation variants: LSTM-only, CNN-only, Hybrid.
 
-**Detection model evaluation** — train BiLSTM+CNN on CICIDS2017 (70% train / 15% val / 15% test, stratified split). Measure accuracy, macro F1, ROC-AUC, and false positive rate per class. Compare against LSTM-only and CNN-only ablation variants.
+**Agent policy evaluation** — the trained detection model generates threat probability vectors fed to the DQN agent as state. Metrics: F1, false positive rate, mean time to respond (MTTR), cumulative episode reward.
 
-**Agent policy evaluation** — using the trained detection model to generate threat probability vectors, train the Dueling DQN agent on a simulated event stream. Measure:
-- Detection F1 and false positive rate
-- Mean Time to Respond (MTTR)
-- Cumulative episode reward
-
-**Comparison** — evaluate three policies on the same held-out event stream:
+**Comparative evaluation** — four policies evaluated on the same held-out event stream:
 
 | Policy | Description |
 |--------|-------------|
 | DQN (proposed) | Learned response policy |
 | Rule-based baseline | Fixed confidence thresholds |
-| Random policy | Lower bound reference |
+| Calibrated threshold baseline | Thresholds derived from supervised probability outputs of the detection model |
+| Random policy | Lower-bound reference |
 
 Results will be reported here as experiments complete on the full dataset.
 
@@ -103,11 +100,13 @@ Results will be reported here as experiments complete on the full dataset.
 
 ## Critical Analysis
 
-While the system introduces a promising framework for autonomous cyber defense, several limitations remain. The reliance on supervised learning models may constrain adaptability in highly dynamic threat environments, particularly when encountering zero-day attacks. Furthermore, the current decision-making mechanism — though learned rather than rule-based — is trained on a single dataset and may not generalise without retraining.
+While the system introduces a promising framework for autonomous cyber defense, several limitations warrant acknowledgement.
 
-The CICIDS2017 dataset, while a widely used benchmark, reflects 2017-era network conditions. Evaluating generalisability on more recent datasets (e.g., CICIDS2023) is a necessary next step.
+The key limitation is that the response policy is learned in a simulated environment rather than a live operational setting, which may affect real-world transferability. The reward function, while carefully designed, approximates the cost structure of real SOC decisions — discrepancies between simulated and real reward signals could produce policies that do not generalise to production environments.
 
-Future work should deepen the reinforcement learning component to enable continuous online adaptation, explore multi-agent coordination models for collaborative defense strategies, and incorporate explainable AI techniques to enhance transparency and trust in autonomous decision-making.
+The reliance on supervised detection models may constrain adaptability against zero-day attacks with no training analogues. The CICIDS2017 dataset reflects 2017-era network conditions; evaluating on more recent benchmarks is a necessary next step.
+
+Future work should address online adaptation — allowing the RL policy to update from live feedback — and explore multi-agent coordination models where specialised agents collaborate across network, endpoint, and identity domains. Incorporating counterfactual explainability would further enhance trust in autonomous decision-making in high-stakes operational contexts.
 
 ---
 
@@ -116,38 +115,36 @@ Future work should deepen the reinforcement learning component to enable continu
 This project aligns with ongoing research in:
 
 - **Agentic AI systems** — autonomous agents that perceive, reason, and act without continuous human direction
-- **Autonomous task execution** — closing the loop from detection to response without manual triage
+- **Autonomous task management under uncertainty** — the agent must prioritise, defer, or escalate actions given probabilistic threat assessments
 - **Intelligent cyber defense** — learning-based approaches that adapt to adversarial evolution
 - **Adaptive and self-healing systems** — feedback-driven behaviour modification
-- **Multi-agent coordination** — a direction for future extension of this work
+- **Multi-agent coordination** — a planned extension of this architecture
 
 ---
 
 ## Current Status
 
-This project is in active development. All core components are implemented and tested:
-
 - ✅ Data preprocessing pipeline (CICIDS2017, SMOTE, sliding windows)
 - ✅ BiLSTM+CNN detection model with Focal Loss
 - ✅ Dueling DQN agent — initial implementation complete, training ongoing
-- ✅ Rule-based baseline policy for controlled comparison
-- ✅ Ablation study framework
+- ✅ Rule-based and calibrated threshold baselines for controlled comparison
+- ✅ Ablation study framework (LSTM-only / CNN-only / Hybrid)
 - ✅ SHAP explainability integration
 - ✅ 33 unit tests passing
 - 🔄 Full training on CICIDS2017 — in progress
 - 🔄 RL convergence experiments — in progress
 
-**Feedback, review, and collaboration are welcomed.** If you are a researcher working in agentic AI, autonomous systems, or cyber defense, I would be glad to discuss the methodology or share preliminary results. Please reach out at `oluebenawodola@gmail.com`.
+**Feedback, review, and collaboration are welcomed.** Reach out at `oluebenawodola@gmail.com`.
 
 ---
 
 ## Future Work
 
-- **Reinforcement learning-based adaptive defense** — extend the DQN agent toward online learning with continuous policy updates as new threats are observed
-- **Multi-agent cyber defense architecture** — specialised agents (network, endpoint, identity) coordinated by a central orchestrator
-- **Real-world deployment and benchmarking** — evaluation on live network traffic and comparison against operational SIEM systems
-- **Explainable AI for decision transparency** — counterfactual explanations and confidence-calibrated justifications for every autonomous action
-- **Federated learning** — privacy-preserving training across distributed network nodes without centralising sensitive log data
+- **Online RL adaptation** — continuous policy updates from live feedback rather than batch simulation
+- **Multi-agent cyber defense architecture** — specialised agents coordinated by a central orchestrator
+- **Real-world deployment and benchmarking** — evaluation against live traffic and operational SIEM baselines
+- **Counterfactual explainability** — "what would have changed the decision" reasoning for each autonomous action
+- **Federated learning** — privacy-preserving training across distributed network nodes
 
 ---
 
