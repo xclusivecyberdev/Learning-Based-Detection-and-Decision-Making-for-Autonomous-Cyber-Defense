@@ -1,0 +1,52 @@
+rl_agent:
+  state_dim: 18           # threat_score(15) + system_load(1) + hour(1) + day(1)
+  action_dim: 4           # 0=ignore, 1=alert, 2=block, 3=escalate
+  hidden_dim: 128
+  gamma: 0.99
+  lr: 0.0003
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: 0.995
+  replay_buffer_size: 50000
+  batch_size: 64
+  target_update_freq: 100
+  min_replay_size: 1000
+
+policy:
+  confidence_thresholds:
+    ignore: 0.3
+    alert: 0.6
+    block: 0.85
+    escalate: 0.95
+  severity_map:
+    BENIGN: 0
+    PortScan: 1
+    Bot: 2
+    DoS Slowloris: 2
+    DoS Slowhttptest: 2
+    DoS GoldenEye: 3
+    DoS Hulk: 3
+    FTP-Patator: 2
+    SSH-Patator: 2
+    Web Attack Brute Force: 2
+    Web Attack XSS: 2
+    Web Attack Sql Injection: 3
+    Infiltration: 3
+    Heartbleed: 4
+    DDoS: 4
+
+rewards:
+  true_positive_block: 1.0
+  true_positive_alert: 0.6
+  false_positive_block: -0.8
+  false_positive_alert: -0.3
+  missed_detection: -1.0
+  correct_ignore: 0.2
+
+memory:
+  window_size: 100
+  persist_path: "results/agent_memory.json"
+
+paths:
+  rl_checkpoint: "results/checkpoints/rl_agent.pt"
+  incident_log_dir: "results/incident_logs"

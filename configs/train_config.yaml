@@ -1,0 +1,55 @@
+seed: 42
+
+dataset:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  sample_file: "data/sample/sample_traffic.csv"
+  window_size: 50
+  test_split: 0.15
+  val_split: 0.15
+  use_smote: true
+  num_classes: 15
+  label_column: "Label"
+  class_names:
+    - BENIGN
+    - DoS Hulk
+    - DoS GoldenEye
+    - DoS Slowloris
+    - DoS Slowhttptest
+    - Heartbleed
+    - FTP-Patator
+    - SSH-Patator
+    - Web Attack Brute Force
+    - Web Attack XSS
+    - Web Attack Sql Injection
+    - Infiltration
+    - Bot
+    - PortScan
+    - DDoS
+
+model:
+  input_dim: 78
+  hidden_dim: 256
+  num_lstm_layers: 2
+  num_cnn_filters: 128
+  num_classes: 15
+  dropout: 0.3
+  bidirectional: true
+
+training:
+  epochs: 50
+  batch_size: 256
+  lr: 0.001
+  min_lr: 0.00001
+  weight_decay: 0.0001
+  focal_gamma: 2.0
+  use_class_weights: true
+  early_stopping_patience: 7
+  gradient_clip: 1.0
+  mixed_precision: true
+
+paths:
+  checkpoint_dir: "results/checkpoints"
+  results_dir: "results"
+  figures_dir: "results/figures"
+  log_dir: "results/logs"

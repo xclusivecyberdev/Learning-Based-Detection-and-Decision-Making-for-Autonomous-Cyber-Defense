@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Environment
+.env
+venv/
+env/
+.venv/
+
+# Data (large files — not committed)
+data/raw/
+data/processed/
+*.npy
+*.pkl
+
+# Model checkpoints (large — use Git LFS if needed)
+results/checkpoints/
+*.pt
+*.onnx
+
+# Logs & outputs
+results/logs/
+*.log
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Coverage
+.coverage
+htmlcov/
