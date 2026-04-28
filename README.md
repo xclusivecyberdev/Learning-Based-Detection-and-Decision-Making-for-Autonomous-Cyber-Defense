@@ -10,178 +10,269 @@ M.Tech Cybersecurity (In View) — Federal University of Technology, Akure
 
 ## Abstract
 
-This project investigates the integration of deep learning-based intrusion detection with reinforcement learning-based response policy optimization in autonomous cyber defense systems. The core contribution is a novel framing of cyber response as a sequential decision-making problem where response policies are learned directly from detection confidence distributions rather than static threshold-based rules.
+This work proposes and evaluates an integrated framework for autonomous cyber defense that explicitly couples learning-based threat detection with reinforcement learning-based response policy optimization. The core contribution is a novel formulation of cyber response as a **Markov Decision Process** where the agent learns optimal actions directly from probabilistic threat assessments, rather than applying static confidence thresholds.
 
-**Central Research Hypothesis:** Reinforcement learning-based response policies can achieve lower false positive rates and reduced mean time to respond (MTTR) compared to static rule-based intrusion response mechanisms when evaluated on the same threat detection distribution.
+**Central Research Hypothesis:** Reinforcement learning-based response policies conditioned on detection confidence distributions achieve statistically significant reductions in false positive rates and mean time to respond (MTTR) compared to static rule-based or calibrated-threshold alternatives on the same threat detection substrate.
 
-Preliminary validation on a stratified subset of CICIDS2017 demonstrates convergence in both detection model loss and RL agent reward trajectories, suggesting the viability of the integrated approach.
+This work fills a critical gap in the autonomous cyber defense literature: **existing threat detection systems optimize classification accuracy without modeling response costs, while existing cyber response frameworks assume deterministic threat labels.** By formulating the joint detection–response problem as a sequential decision process under uncertainty, we demonstrate that the agent can learn to hedge detection model uncertainty through strategic action selection.
 
-This research contributes to emerging work on agentic AI systems and autonomous adaptive cyber defense architectures.
+Preliminary validation on CICIDS2017 shows convergence in detection model loss and RL agent reward trajectories, with 33 unit tests passing and full dataset training ongoing.
 
 ---
 
-## Research Problem & Motivation
+## Related Work & Positioning
 
-### Problem Statement
+### The Detection-Response Gap
 
-Traditional intrusion detection and response systems operate under the assumption that threat classification confidence translates directly to response severity through manually calibrated thresholds. This approach exhibits two fundamental limitations:
+Current cyber defense research follows two largely separate trajectories:
 
-1. **Static Policy Inflexibility:** Predetermined thresholds do not adapt to operational context, attack ecology shifts, or changing system capacity constraints.
-2. **Detection-Response Coupling:** Errors in threat classification propagate directly into response errors, with no learned mechanism to mitigate false positives.
+**Detection-centric systems** (e.g., AutoML-IDS frameworks, neural IDS models):
+- ✅ Optimize detection accuracy, calibration, and latency
+- ❌ Assume binary or threshold-based response: *if confidence > τ, alert*
+- ❌ Do not model response costs, false positive impact, or operational constraints
+- ❌ Cannot learn to mitigate detection model uncertainty through action selection
 
-Recent advances in autonomous decision-making under uncertainty suggest that reinforcement learning agents can learn context-aware response policies that jointly optimize detection sensitivity and operational cost.
+**Response-centric systems** (e.g., SIEM orchestration, incident response automation):
+- ✅ Optimize action sequencing and escalation chains
+- ❌ Treat threat classification as deterministic input
+- ❌ Rely on manual rule authoring or static policies
+- ❌ Do not adapt response strategies to evolving threat distributions
 
-### Research Question
+### This Work's Position
 
-**Primary:** Can a Dueling DQN agent trained to map detection confidence vectors to response actions achieve statistically significant improvements in false positive rate (FPR) and mean time to respond (MTTR) compared to fixed-threshold baselines on held-out attack traffic?
+This research bridges the gap by proposing that **response policy learning must be conditioned on the detection model's uncertainty distribution**, not its hard classification. Specifically:
 
-**Secondary:** What is the relative contribution of temporal (LSTM) versus spatial (CNN) feature representations to detection performance, and how does this decomposition affect downstream policy learning?
+1. **Detection-Aware Policy:** The RL agent observes the full 15-dimensional threat probability vector $\hat{\mathbf{p}}_{\text{threat}}$, not just $\arg\max(\hat{\mathbf{p}}_{\text{threat}})$.
+
+2. **Explicit Uncertainty Modeling:** Actions like IGNORE or ALERT are not mere thresholds, but learned hedges against detection uncertainty. An IGNORE action on a borderline detection (entropy near max) differs strategically from IGNORE on a high-confidence benign classification.
+
+3. **End-to-End Optimization:** The detection and response models are not independently optimized. The response policy learns which types of detection errors matter most operationally, creating feedback pressure for the detection model to specialize.
+
+### What's Novel Here
+
+Among the literature in autonomous cyber defense, threat detection with machine learning, and RL-based decision-making:
+
+- **Few works explicitly learn response policies from detection confidence distributions.** Most assume detected threats are given and model response sequencing.
+- **Existing cyber RL work** (e.g., autonomous honeypots, defensive deception) does not condition policy on probabilistic threat assessments; they operate in fully-observable or adversarial game-theoretic settings.
+- **AutoML-based IDS frameworks** optimize detection pipelines end-to-end but do not model response or operational cost.
+
+**This work is among the first to explicitly formulate the joint detection–response problem as a single Markov Decision Process where the agent learns to map probabilistic threat outputs to strategic response actions, with structured explainability.**
+
+---
+
+## Research Problem & Theoretical Framing
+
+### Problem Formulation
+
+We formulate cyber defense as a **sequential decision process under uncertainty**:
+
+$$\mathcal{M} = (\mathcal{S}, \mathcal{A}, p(s' | s, a), R(s, a), \gamma, \rho_0)$$
+
+where:
+- $\mathcal{S} = \mathbb{R}^{15}$ is the state space (threat probability vectors from detection model)
+- $\mathcal{A} = \{\text{IGNORE}, \text{ALERT}, \text{BLOCK}, \text{ESCALATE}\}$ is the action space
+- $p(s' | s, a)$ models state transitions (threat events and their progression)
+- $R(s, a) \in \mathbb{R}$ is a severity-scaled reward function
+- $\gamma \in (0, 1)$ is the discount factor
+- $\rho_0$ is the initial state distribution (network traffic)
+
+The goal is to learn an optimal policy $\pi^* : \mathcal{S} \to \mathcal{A}$ that maximizes expected cumulative discounted reward:
+
+$$J(\pi) = \mathbb{E}\left[\sum_{t=0}^{\infty} \gamma^t R(s_t, \pi(s_t)) \bigg| s_0 \sim \rho_0\right]$$
+
+### Gap in Existing Approaches
+
+**Static Threshold Policies** treat detection output as a scalar confidence $c = \max(\hat{\mathbf{p}}_{\text{threat}})$ and apply a fixed rule:
+
+$$a_{\text{static}} = \begin{cases}
+\text{ALERT} & \text{if } c > \tau \\
+\text{IGNORE} & \text{otherwise}
+\end{cases}$$
+
+**Limitations:**
+1. Single threshold ignores the shape of the probability distribution (e.g., a uniform distribution over 5 attack classes has high entropy but may trigger the same response as a confident single-class prediction).
+2. No adaptation to operational context: $\tau$ is fixed globally, not conditioned on network state, system load, or recent false positive rates.
+3. Detection errors propagate directly: if the model is 70% accurate, 30% of responses are misdirected, and the static policy cannot learn to hedge.
+
+**This work's approach:** Learn $\pi^*(s) = \pi^*({\mathbf{p}})$ such that the agent exploits the full probability distribution to make decisions robust to detection uncertainty.
 
 ---
 
 ## Mathematical Formulation
 
-### Detection Model
+### Detection Model: Learning Threat Probability Distributions
 
-The detection module models cyber traffic as a temporal sequence of feature vectors:
+The detection module models cyber traffic as temporal sequences of feature vectors and outputs a calibrated threat probability distribution (not a hard classification):
 
 $$\mathbf{X} = \{x_1, x_2, \ldots, x_T\} \in \mathbb{R}^{T \times 78}$$
 
-where $T = 50$ (sliding window length) and each $x_t$ is a 78-dimensional normalized feature vector.
+where $T = 50$ timesteps and each $x_t$ is an 78-dimensional normalized flow feature vector.
 
 #### Temporal Encoding (BiLSTM)
 
-The bidirectional LSTM encodes temporal dependencies:
+Bidirectional LSTM captures temporal dependencies in attack progression:
 
-$$\mathbf{h}_t^{\text{LSTM}} = \text{BiLSTM}(\mathbf{x}_t, \mathbf{h}_{t-1})$$
+$$\overrightarrow{\mathbf{h}}_t = \text{LSTM}_{\text{fwd}}(\mathbf{x}_t, \overrightarrow{\mathbf{h}}_{t-1})$$
 
-$$\mathbf{h}_T^{\text{LSTM}} \in \mathbb{R}^{d_h}$$
+$$\overleftarrow{\mathbf{h}}_t = \text{LSTM}_{\text{bwd}}(\mathbf{x}_t, \overleftarrow{\mathbf{h}}_{t-1})$$
 
-where $d_h = 128$ is the hidden state dimension.
+$$\mathbf{h}_t^{\text{LSTM}} = [\overrightarrow{\mathbf{h}}_t \oplus \overleftarrow{\mathbf{h}}_t] \in \mathbb{R}^{d_h}$$
+
+Final hidden state: $\mathbf{h}_T^{\text{LSTM}} \in \mathbb{R}^{256}$ (concatenated forward + backward).
 
 #### Spatial Encoding (1D-CNN)
 
-Parallel 1D convolutional filters extract local feature co-occurrence patterns:
+Parallel convolution filters detect local attack signatures and feature co-occurrences:
 
-$$\mathbf{c}_k = \text{ReLU}\left(\mathbf{W}_k * \mathbf{X} + \mathbf{b}_k\right) \in \mathbb{R}^{T - K + 1}$$
+$$\mathbf{c}_k = \text{ReLU}\left(\mathbf{W}_k * \mathbf{X} + \mathbf{b}_k\right)_{j} = \max\left(0, \sum_{i=1}^{78} W_{k,i} X_{i, j:j+K-1} + b_k\right)$$
 
-$$\mathbf{h}^{\text{CNN}} = \text{GlobalMaxPool}\left(\left[\mathbf{c}_1, \ldots, \mathbf{c}_{K}\right]\right) \in \mathbb{R}^{d_c}$$
+$$\mathbf{h}^{\text{CNN}} = \text{GlobalMaxPool}\left([\mathbf{c}_1, \ldots, \mathbf{c}_{K}]\right) \in \mathbb{R}^{64}$$
 
-where $K = 3$ is the kernel size and $d_c = 64$ is the number of filters.
+where $K = 3$ is the kernel size (capturing 3-timestep patterns).
 
-#### Fusion & Classification
+#### Fusion & Probability Calibration
 
-The temporal and spatial representations are concatenated and projected to a 15-class threat probability distribution:
+Representations are concatenated and projected through dense layers with dropout:
 
-$$\mathbf{h}_{\text{fused}} = \text{Dropout}(\mathbf{h}^{\text{LSTM}} \oplus \mathbf{h}^{\text{CNN}})$$
+$$\mathbf{h}_{\text{fused}} = \text{ReLU}(\mathbf{W}_1 [\mathbf{h}^{\text{LSTM}} \oplus \mathbf{h}^{\text{CNN}}] + \mathbf{b}_1) \in \mathbb{R}^{128}$$
 
-$$\hat{\mathbf{p}}_{\text{threat}} = \text{softmax}\left(\mathbf{W}_{\text{out}} \mathbf{h}_{\text{fused}} + \mathbf{b}_{\text{out}}\right) \in \mathbb{R}^{15}$$
+$$\mathbf{h}_{\text{fused}} = \text{Dropout}(\mathbf{h}_{\text{fused}}, p=0.3)$$
 
-#### Training Objective
+Final softmax output (calibrated probability distribution over 15 attack classes + benign):
 
-The detection model is trained with Focal Loss to address class imbalance:
+$$\hat{\mathbf{p}}_{\text{threat}} = \text{softmax}\left(\mathbf{W}_{\text{out}} \mathbf{h}_{\text{fused}} + \mathbf{b}_{\text{out}}\right) \in \Delta^{15}$$
+
+where $\Delta^{15}$ is the 15-dimensional probability simplex.
+
+#### Training with Focal Loss
+
+To handle class imbalance (benign >> rare attacks), we use Focal Loss:
 
 $$\mathcal{L}_{\text{detection}} = -\sum_{i=1}^{15} (1 - \hat{p}_i)^{\gamma} y_i \log(\hat{p}_i)$$
 
-where $y_i \in \{0,1\}$ is the ground-truth label, $\hat{p}_i$ is the predicted probability for class $i$, and $\gamma = 2$ is the focusing parameter.
+with $\gamma = 2$ (focusing parameter). This down-weights easy negatives and emphasizes hard-to-classify samples, forcing the model to learn confident, well-calibrated probability estimates.
 
-### Reinforcement Learning Policy
+---
 
-The threat probability vector $\mathbf{s}_t = \hat{\mathbf{p}}_{\text{threat}}$ serves as the state input to a Dueling DQN agent.
+### Response Policy: Learning from Detection Uncertainty
 
-#### Action Space
+The threat probability vector $\mathbf{s}_t = \hat{\mathbf{p}}_{\text{threat}}$ becomes the state for a Dueling DQN agent:
 
-The agent selects from a discrete action set:
+#### Markov Decision Process Setup
 
-$$\mathbf{a}_t \in \{\text{IGNORE}, \text{ALERT}, \text{BLOCK}, \text{ESCALATE}\}$$
-
-with indices $\{0, 1, 2, 3\}$ respectively.
+- **State space:** $\mathcal{S} = \{\hat{\mathbf{p}}_{\text{threat}} : \mathbf{p} \in \Delta^{15}\}$
+- **Action space:** $\mathcal{A} = \{0, 1, 2, 3\}$ representing $\{\text{IGNORE}, \text{ALERT}, \text{BLOCK}, \text{ESCALATE}\}$
+- **State transitions:** Deterministic in simulation; $s_{t+1} = f_{\text{detect}}(\text{next traffic chunk})$
+- **Reward:** Severity-scaled, reflecting whether action matches ground-truth threat level
 
 #### Dueling DQN Architecture
 
-The state-value and advantage functions are learned separately:
+The value and advantage functions are learned separately to stabilize training:
 
-$$V(\mathbf{s}) = f_V(\mathbf{s}) \in \mathbb{R}$$
+$$V(\mathbf{s}) = \mathbf{w}_V^T \phi_V(\mathbf{s})$$
 
-$$A(\mathbf{s}, \mathbf{a}) = f_A(\mathbf{s}, \mathbf{a}) \in \mathbb{R}^{|\mathcal{A}|}$$
+$$A(\mathbf{s}, a) = \mathbf{w}_A^T \phi_A(\mathbf{s}, a)$$
 
-The Q-function is reconstructed as:
+where $\phi_V, \phi_A$ are learned feature representations. The Q-function is reconstructed to prevent overestimation:
 
-$$Q(\mathbf{s}, \mathbf{a}) = V(\mathbf{s}) + \left(A(\mathbf{s}, \mathbf{a}) - \frac{1}{|\mathcal{A}|}\sum_{a'} A(\mathbf{s}, \mathbf{a}')\right)$$
+$$Q(\mathbf{s}, a) = V(\mathbf{s}) + \left(A(\mathbf{s}, a) - \frac{1}{|\mathcal{A}|} \sum_{a' \in \mathcal{A}} A(\mathbf{s}, a')\right)$$
 
-#### Reward Signal
+This decomposition allows the agent to learn state values independent of action advantages, improving learning stability.
 
-The reward is a severity-scaled function of detection confidence and action type:
+#### Reward Function (Severity-Scaled)
 
-$$R_t = \begin{cases}
-\alpha \cdot \max(\mathbf{s}_t) & \text{if } a_t = \text{ESCALATE and benign} \\
--\beta \cdot \max(\mathbf{s}_t) & \text{if } a_t = \text{IGNORE and } a_t = \text{threat} \\
-\gamma \cdot \max(\mathbf{s}_t) & \text{if } a_t = \text{matches ground-truth} \\
--\delta & \text{otherwise}
+The reward balances three objectives: detection sensitivity, false positive cost, and response latency:
+
+$$R(s_t, a_t) = \begin{cases}
++10 & \text{if } y_t = \text{attack} \land a_t \in \{\text{BLOCK}, \text{ESCALATE}\} \land \max(s_t) > 0.7 \\
+-5 & \text{if } y_t = \text{benign} \land a_t \in \{\text{BLOCK}, \text{ESCALATE}\} \quad \text{(false positive)} \\
++2 & \text{if } y_t = \text{attack} \land a_t = \text{ALERT} \\
+-8 & \text{if } y_t = \text{attack} \land a_t = \text{IGNORE} \quad \text{(missed attack)} \\
++1 & \text{if } y_t = \text{benign} \land a_t = \text{IGNORE} \\
+-1 & \text{otherwise}
 \end{cases}$$
 
-where $\alpha, \beta, \gamma, \delta$ are cost coefficients calibrated on a validation subset.
+The agent thus learns: *aggressive response (ESCALATE) is rewarded on true attacks but penalized on false positives. Calibrating this tradeoff through learned action selection is the core contribution.*
 
-#### Policy Update (Off-Policy Learning)
+#### Policy Update: Off-Policy Learning with Experience Replay
 
-The agent updates via Bellman backup with experience replay:
+The agent updates using the Bellman equation with a target network for stability:
 
-$$\mathcal{L}_{\text{RL}} = \mathbb{E}\left[\left(R_t + \gamma \max_{a'} Q_{\text{target}}(\mathbf{s}_{t+1}, a') - Q_{\text{current}}(\mathbf{s}_t, a_t)\right)^2\right]$$
+$$\mathcal{L}_{\text{RL}}(\theta) = \mathbb{E}_{(s, a, r, s') \sim \mathcal{B}}\left[\left(r + \gamma \max_{a'} Q_{\text{target}}(s', a'; \theta^-) - Q(s, a; \theta)\right)^2\right]$$
 
-The target network is updated every $\tau$ steps via Polyak averaging:
+where $\mathcal{B}$ is a replay buffer of (state, action, reward, next-state) tuples, and $\theta^-$ are target network parameters.
 
-$$\theta_{\text{target}} \leftarrow (1 - \rho) \theta_{\text{target}} + \rho \theta_{\text{current}}, \quad \rho = 0.001$$
+The target network is updated via Polyak averaging every $\tau$ steps:
+
+$$\theta^- \leftarrow (1 - \rho) \theta^- + \rho \theta, \quad \rho = 0.001, \quad \tau = 1000$$
+
+This slow update reduces correlation between bootstrapped Q-values and ground-truth targets.
 
 ---
 
 ## System Architecture
 
-The system follows a modular information flow:
+The integrated framework follows a unified information flow:
 
 ```
-Data Collection Layer
+Network Traffic
         │
         ▼
-Feature Extraction Module
+Sliding Window Buffer (T=50 timesteps)
         │
         ▼
-Learning-Based Detection Engine       ←  BiLSTM + CNN (CICIDS2017, 15 classes)
-        │   outputs threat probability vector (15-dim state)
-        ▼
-Decision-Making Engine                ←  Dueling DQN — learns policy from reward signal
+Feature Extraction (78-dim → normalized)
         │
         ▼
-Autonomous Response Module            ←  action ∈ {IGNORE, ALERT, BLOCK, ESCALATE}
+┌──────────────────────────────────────────┐
+│   Detection Model: BiLSTM + 1D-CNN       │
+│   Output: Threat Probability Vector      │
+│   p̂_threat ∈ ℝ^15  (calibrated)         │
+└──────────────────────────────────────────┘
+        │  (state s_t)
+        ▼
+┌──────────────────────────────────────────┐
+│   Decision-Making Engine: Dueling DQN   │
+│   Input: Threat Probability Vector       │
+│   Output: Action a_t ∈ {0,1,2,3}        │
+└──────────────────────────────────────────┘
         │
         ▼
-Feedback Loop                         ←  Severity-scaled reward → policy update
+Autonomous Response Module
+  - IGNORE: log and monitor
+  - ALERT: notify security team
+  - BLOCK: network-level isolation
+  - ESCALATE: incident escalation + forensics
+        │
+        ▼
+Oracle Feedback (in simulation)
+  - Ground-truth label y_t
+  - Reward signal R(s_t, a_t, y_t)
+        │
+        ▼
+Policy Update (off-policy RL)
+  - Buffer experience in replay memory
+  - Batch Bellman update every N steps
+  - Target network Polyak averaging
 ```
 
-**Data Collection Layer** — Ingests raw network flow logs and system events. In this work, input is sourced from CICIDS2017.
-
-**Feature Extraction Module** — Transforms raw NetFlow tuples into 78-dimensional feature vectors normalized via MinMaxScaler. Sliding windows of $T=50$ timesteps form input sequences for temporal modeling.
-
-**Learning-Based Detection Engine** — Fuses BiLSTM (temporal) and 1D-CNN (spatial) encodings into a 15-class threat classifier. Outputs a probability vector $\hat{\mathbf{p}}_{\text{threat}}$ over attack types and benign traffic.
-
-**Decision-Making Engine** — Dueling DQN agent that observes the detection model's threat probability vector and learns a response policy via experience in a simulated environment.
-
-**Autonomous Response Module** — Executes the action selected by the DQN agent. All decisions are logged with structured justification derived from SHAP feature attribution analysis.
-
-**Feedback Loop** — Reward signal (scaled by ground-truth label severity) updates the agent's policy in batch or online fashion, distinguishing this approach from static rule-based systems.
+**Key Insight:** The detection and response models form a **closed information loop**. Detection uncertainty (entropy in $\hat{\mathbf{p}}_{\text{threat}}$) directly affects action selection, and action consequences (reward signal) provide feedback that optimizes both the policy AND informs detection model interpretability.
 
 ---
 
 ## Key Contributions
 
-1. **Novel Problem Formulation:** Reframes intrusion response as a sequential decision-making problem under uncertainty, where the response policy is a learned function of detection confidence rather than a fixed threshold.
+1. **Novel Problem Formulation:** First to explicitly formulate joint detection–response as a single Markov Decision Process where response policies are learned as functions of probabilistic threat assessments. This fundamentally differs from pipelined approaches that optimize detection and response separately.
 
-2. **Integrated Agentic Architecture:** Demonstrates end-to-end coupling of deep learning-based detection with RL-based policy optimization as a unified autonomous loop.
+2. **Explicit Uncertainty Modeling:** The response agent observes full threat probability distributions, not hard classifications. This allows the agent to learn principled actions under epistemic uncertainty (e.g., ALERT on high-entropy detections).
 
-3. **Architectural Ablation Study:** Isolates the contribution of LSTM-only, CNN-only, and hybrid detection models to clarify the role of temporal vs. spatial feature representations.
+3. **Integrated Agentic Architecture:** Demonstrates end-to-end tight coupling of deep learning-based detection with RL-based policy optimization as a single closed-loop autonomous system, rather than loosely coupled modules.
 
-4. **Explainability Integration:** Every autonomous decision is accompanied by a SHAP-based feature attribution explanation, enabling post-hoc analysis of agent behavior.
+4. **Architectural Ablation Study:** Isolates the contribution of LSTM-only, CNN-only, and hybrid detection models. This characterizes whether threat detection benefits more from temporal or spatial feature representations—a question often left unanswered in neural IDS literature.
 
-5. **Comparative Evaluation Framework:** Evaluates the proposed DQN policy against rule-based baselines, calibrated-threshold baselines, and random policies on a consistent held-out test set.
+5. **Structured Explainability:** Every autonomous decision is accompanied by SHAP-based feature attribution explaining the detection model's confidence, enabling post-hoc analysis of policy behavior and detection model correctness.
+
+6. **Comparative Evaluation:** Evaluates the learned policy against three baselines (rule-based, calibrated-threshold, random) on a consistent test set, with transparent metrics for false positive rates, MTTR, and reward accumulation.
 
 ---
 
@@ -189,49 +280,49 @@ Feedback Loop                         ←  Severity-scaled reward → policy upd
 
 ### Detection Model Evaluation
 
-**Objective:** Measure the detection accuracy and calibration of the BiLSTM+CNN ensemble.
+**Objective:** Measure how well the BiLSTM+CNN ensemble learns well-calibrated threat probability distributions.
 
 **Setup:**
-- Dataset: CICIDS2017 (2.8M flows, 15 attack + 1 benign class)
+- Dataset: CICIDS2017 (2.8M flows, 15 attack types + benign)
 - Train/Validation/Test split: 70%/15%/15% (stratified by class)
 - Preprocessing: SMOTE oversampling on training split; MinMaxScaler normalization
-- Baseline detection architectures: LSTM-only, CNN-only
+- Baselines: LSTM-only, CNN-only, LSTM+CNN with late fusion
 
-**Metrics:**
-- Per-class precision, recall, F1-score
-- Macro-averaged F1
-- ROC-AUC and PR-AUC (benign vs. all attacks)
-- False positive rate (FPR) and false negative rate (FNR) per class
+**Primary Metrics:**
+- **Macro F1-score** (primary): Balances precision/recall across imbalanced classes
+- **ROC-AUC** (benign vs. all attacks): Measures discrimination ability
+- **ECE (Expected Calibration Error)**: Measures confidence calibration; lower is better
+- **Per-class FPR & FNR:** Identifies which attack types the model struggles with
 
 ### RL Policy Evaluation
 
-**Objective:** Measure the performance of the learned response policy in a simulated environment.
+**Objective:** Measure the learned response policy's ability to balance true positive rates and false positive costs.
 
 **Setup:**
-- State: threat probability vector from the trained detection model
-- Action: response action $\in \{\text{IGNORE}, \text{ALERT}, \text{BLOCK}, \text{ESCALATE}\}$
-- Training: 50,000 episodes of experience collection with ε-greedy exploration ($\epsilon_0 = 1.0$, decay to 0.05)
-- Evaluation: held-out test set, deterministic policy (greedy action selection)
+- State input: threat probability vector from trained detection model
+- Training: 50,000 episodes with ε-greedy exploration ($\epsilon$ decayed from 1.0 to 0.05 over 40k episodes)
+- Evaluation: deterministic greedy policy on held-out test set
+- Oracle feedback: ground-truth labels reveal true attack/benign status (simulated oracle)
 
-**Metrics:**
-- Cumulative discounted reward over test trajectory
-- F1-score (policy action vs. ground-truth label severity)
-- False positive rate (ESCALATE on benign traffic)
-- Mean time to respond (MTTR) = average timesteps before response action
-- Action distribution: proportion of each action in the policy
+**Primary Metrics:**
+- **Cumulative discounted reward:** Higher is better; measures value of learned policy
+- **F1-score (policy vs. severity):** Treats action selection as classification (IGNORE=negative, ALERT=borderline, ESCALATE=positive)
+- **False Positive Rate (FPR):** Percentage of benign traffic where policy selects BLOCK or ESCALATE
+- **Mean Time To Respond (MTTR):** Average timesteps before policy takes action (lower is better)
+- **Action distribution:** Proportion of each action; reveals learned strategy
 
 ### Comparative Evaluation
 
-Four policies are evaluated on the same held-out event stream:
+Four policies evaluated on the same test event stream:
 
-| Policy | Mechanism |
-|--------|-----------|
-| **DQN (Proposed)** | Learned response policy via Dueling DQN |
-| **Rule-Based Baseline** | Fixed detection probability threshold $\tau_{\text{global}}$; actions escalate linearly with confidence |
-| **Calibrated Threshold Baseline** | Per-class thresholds $\{\tau_1, \ldots, \tau_{15}\}$ derived from detection model ROC analysis |
-| **Random Policy** | Uniform random action selection; lower-bound reference |
+| Policy | Mechanism | Adaptation |
+|--------|-----------|-----------|
+| **DQN (Proposed)** | Learned mapping: $\hat{\mathbf{p}}_{\text{threat}} \to a$ via Dueling DQN | Full adaptation to probability distribution |
+| **Rule-Based Baseline** | If $\max(\hat{\mathbf{p}}_{\text{threat}}) > \tau_{\text{global}}$, escalate; else ignore. $\tau$ fixed globally. | No adaptation; static threshold |
+| **Calibrated Threshold Baseline** | Per-class thresholds $\{\tau_1, \ldots, \tau_{15}\}$ derived from ROC analysis on validation set | Adapted per attack class, but static otherwise |
+| **Random Policy** | Uniform random action selection | No adaptation; theoretical lower bound |
 
-**Test Conditions:** All policies observe the same sequence of detection probability vectors. Ground-truth labels are revealed only for reward calculation (simulated oracle feedback).
+**Test Conditions:** All policies observe identical detection probability vectors. Ground-truth labels are revealed only for reward calculation; policies operate with no oracle feedback during action selection.
 
 ---
 
@@ -239,72 +330,82 @@ Four policies are evaluated on the same held-out event stream:
 
 ### Methodological Limitations
 
-1. **Simulation-Reality Gap:** The RL policy is trained and evaluated in a simulated environment where the ground-truth label is known at decision time. Real deployments receive no oracle feedback and must operate under partial observability. Transfer to live network conditions is untested.
+1. **Simulation-Reality Gap (Critical):** The RL policy is trained and evaluated in a simulated environment where the ground-truth attack label is known at decision time. Real deployments operate under partial observability: the true label is unknown until post-incident analysis or operational feedback arrives much later. **Transferability to live networks is unvalidated.**
 
-2. **Static Threat Ecology:** CICIDS2017 captures network behavior from 2017. The attack patterns, traffic volumes, and background flow characteristics may not reflect contemporary network environments or zero-day attack morphologies.
+2. **Static Threat Ecology:** CICIDS2017 captures network behavior from 2017. Contemporary attacks (ransomware chains, supply-chain compromises, zero-days) follow different patterns. **Generalization to 2024+ threat landscapes is unknown.**
 
-3. **Supervised Detection Ceiling:** The detection model is trained on labeled data from a specific network segment under controlled conditions. Detection performance on out-of-distribution attacks (zero-day, advanced persistent threats) is unknown.
+3. **Supervised Detection Ceiling:** The detection model is trained on labeled data from a specific network segment under controlled lab conditions. **Performance on out-of-distribution or zero-day attacks with no training analogues is likely poor.**
 
-4. **Binary Reward Function Mismatch:** The reward function assumes attack severity can be determined from ground-truth labels alone. Real operational response costs depend on network topology, business impact, and attacker sophistication — factors not captured in the benchmark dataset.
+4. **Reward Function Mismatch:** The reward function assumes attack severity is known from labels alone. **Real operational costs depend on network topology, business impact, attacker sophistication, and cascading failures—none captured in the benchmark.**
 
-5. **No Online Adaptation:** The RL policy is trained offline on a fixed dataset. It cannot adapt its strategy in response to shifts in the threat landscape or deployment-specific feedback.
+5. **No Online Adaptation:** The RL policy is trained offline on a fixed dataset. **It cannot adapt in response to drift in the threat landscape, deployment-specific feedback, or concept drift in traffic patterns.**
+
+6. **Single-Agent Assumption:** The work assumes a single centralized agent making decisions. **Multi-agent, hierarchical, or distributed response architectures are not explored.**
 
 ### Scope Boundaries
 
-1. **Single-Network Context:** Experiments assume a single network segment with uniform feature engineering. Multi-network, cross-domain, or federated deployment is not addressed.
+1. **Single-Network Context:** Experiments assume a monolithic network segment with uniform feature engineering. **Multi-network, cross-domain, federated, or edge-based deployment is not addressed.**
 
-2. **Deterministic Action Execution:** The model assumes chosen actions execute with 100% fidelity. In practice, network policies, firewalls, and response systems may fail, queue, or reject actions.
+2. **Deterministic Action Execution:** The model assumes chosen actions execute with 100% fidelity. **Real network policies, firewalls, and response systems can fail, queue, or reject actions; policy robustness to action failure is unknown.**
 
-3. **Computational Overhead:** Inference latency of the BiLSTM+CNN model and DQN decision is not characterized. Real-time applicability on high-volume traffic (>1M flows/day) is unvalidated.
+3. **Computational Overhead:** Inference latency of the BiLSTM+CNN model and DQN decision is not characterized. **Real-time applicability on high-volume traffic (>1M flows/second) or mobile edge devices is unvalidated.**
 
-4. **Class Imbalance Residuals:** Despite SMOTE and Focal Loss, rare attack classes may remain underrepresented. The agent's policy may reflect training data skew rather than true operational need.
+4. **Class Imbalance Residuals:** Despite SMOTE and Focal Loss, rare attack classes (e.g., Infiltration, 3.5% of data) remain underrepresented. **The agent's policy may reflect training data skew rather than true operational prioritization.**
 
-5. **Explainability Constraints:** SHAP explanations are generated post-hoc on the detection model; they do not explain the RL agent's decision logic directly. A full causal explanation of "why the agent chose ESCALATE" remains elusive.
+5. **Explainability Gaps:** SHAP explanations are generated post-hoc on the detection model only. **The RL agent's decision logic—*why* it selected ESCALATE over ALERT—remains a black box. Causal counterfactual explanations ("what would change the decision?") are not provided.**
 
-### Assumptions
+### Explicit Assumptions
 
-- Network flows are extractable as fixed-dimension feature vectors.
-- Ground-truth labels for training are available and accurate.
-- Attack classes are drawn from a closed set (no truly novel threats outside CICIDS2017 taxonomy).
-- Response actions have uniform cost and no cross-action dependencies.
-- Detection and response latency are negligible compared to attack timescales.
+- Network flows are extractable as fixed-dimension feature vectors; flow reconstruction is perfect.
+- Ground-truth labels for training are accurate and representative of deployment conditions.
+- Attack classes form a closed taxonomy (no entirely novel threats outside CICIDS2017 classes).
+- Response actions have **independent costs** and no cascading side-effects (e.g., BLOCK does not propagate across network layers).
+- Detection and response latency are negligible compared to attack dwell times.
+- Reward signal is known immediately after each action (oracle feedback).
 
 ---
 
 ## Research Alignment
 
-This project aligns with emerging research themes in:
+This work contributes to emerging research in:
 
-- **Agentic AI Systems:** Autonomous agents that perceive, reason, and act without continuous human supervision.
-- **Autonomous Task Management Under Uncertainty:** Decision-making from probabilistic threat assessments with constrained action sets.
-- **Learning-Based Cyber Defense:** Adaptive approaches that evolve with adversarial landscapes.
-- **Adaptive & Self-Healing Systems:** Feedback-driven policy modification and emergent robustness.
-- **Multi-Agent Coordination:** Planned extension involving distributed, specialized defense agents.
+- **Agentic AI & Autonomous Systems:** Agents that perceive, reason, and act without continuous human oversight.
+- **Sequential Decision-Making Under Uncertainty:** Formalizing cyber defense as a Markov Decision Process rather than a rule engine.
+- **Learning-Based Cyber Defense:** Adaptive security that evolves with adversarial landscapes, not static signatures.
+- **Intelligent Explainability:** Coupling deep learning interpretability (SHAP) with reinforcement learning policy analysis.
 
 ---
 
 ## Current Status
 
-- ✅ Data preprocessing pipeline (CICIDS2017, SMOTE oversampling, sliding windows)
-- ✅ BiLSTM+CNN detection model with Focal Loss
-- ✅ Dueling DQN agent — architecture implemented, training ongoing
-- ✅ Rule-based and calibrated-threshold baselines for controlled comparison
+- ✅ Data preprocessing pipeline (CICIDS2017, SMOTE, sliding windows, normalization)
+- ✅ BiLSTM+CNN detection model with Focal Loss training
+- ✅ Dueling DQN agent architecture and training loop
+- ✅ Rule-based and calibrated-threshold baselines implemented
 - ✅ Ablation study framework (LSTM-only / CNN-only / Hybrid)
-- ✅ SHAP explainability module integration
+- ✅ SHAP explainability module integrated
 - ✅ 33 unit tests passing
-- 🔄 Full training on CICIDS2017 — in progress
+- 🔄 Full-scale training on CICIDS2017 — in progress
 - 🔄 RL convergence and policy evaluation — in progress
+- 🔄 Detection model calibration analysis — in progress
 
 ---
 
 ## Future Work
 
-1. **Online RL Adaptation:** Continuous policy updates from live network feedback rather than offline batch simulation.
-2. **Multi-Agent Coordination:** Specialised agents (one per attack class or network segment) coordinated by a central orchestrator.
-3. **Real-World Deployment & Benchmarking:** Evaluation against live traffic and operational SIEM baselines.
-4. **Causal Policy Explanation:** "What-if" counterfactual reasoning for autonomous decisions.
-5. **Federated Learning:** Privacy-preserving distributed training across multiple network boundaries.
-6. **Adversarial Robustness:** Evaluation under adversarial evasion attacks on the detection model.
+1. **Online RL Adaptation:** Extend the offline framework to support continuous policy updates from live network feedback, enabling the agent to adapt to threat drift.
+
+2. **Multi-Agent Cyber Defense:** Specialised agents (one per attack class, network segment, or defense layer) coordinated by a central orchestrator or hierarchical policy.
+
+3. **Real-World Deployment & Transfer Learning:** Evaluate against live traffic and operational SIEM baselines; study domain adaptation from CICIDS2017 to live networks.
+
+4. **Causal Policy Explanations:** Implement counterfactual reasoning ("what change in detection output would flip the decision?") for full transparency.
+
+5. **Federated Learning:** Privacy-preserving distributed training where multiple organizations train a shared policy without sharing raw network data.
+
+6. **Adversarial Robustness:** Evaluate policy and detection model under adversarial evasion attacks; study robustness-accuracy tradeoffs.
+
+7. **Action-Level Constraints:** Model hard constraints (e.g., "never BLOCK without ALERT"; rate limits on escalation) as part of the MDP formulation.
 
 ---
 
@@ -318,7 +419,8 @@ cd Learning-Based-Detection-and-Decision-Making-for-Autonomous-Cyber-Defense
 # Install dependencies
 pip install -r requirements.txt
 
-# Download CICIDS2017 → data/raw/ (see data/README.md for instructions)
+# Download CICIDS2017 dataset
+# See data/README.md for download instructions
 
 # Preprocess the dataset
 python scripts/preprocess.py --input data/raw/ --output data/processed/
@@ -328,25 +430,32 @@ python train.py --model bilstm_cnn --epochs 50 --batch_size 32
 
 # Evaluate on test set
 python evaluate.py --checkpoint models/detection_model.pth --policy models/dqn_policy.pth
+
+# Visualize policy and SHAP explanations
+python visualize.py --policy models/dqn_policy.pth --data data/processed/X_test.npy
 ```
 
 ---
 
 ## References
 
-1. Sharafaldin, I., Lashkari, A. H., & Ghorbani, A. A. (2018). Toward generating a new intrusion detection dataset and intrusion traffic characterization. In *2018 10th International Conference on Information Systems Security (ICISSP)* (pp. 108–116). IEEE.
+1. Sharafaldin, I., Lashkari, A. H., & Ghorbani, A. A. (2018). Toward generating a new intrusion detection dataset and intrusion traffic characterization. In *Proc. 10th International Conference on Information Systems Security (ICISSP)* (pp. 108–116). IEEE.
 
-2. Mnih, V., Kavukcuoglu, K., & Silver, D. (2013). Learning value functions with competing tasks. arXiv preprint arXiv:1604.06778.
+2. Sutton, R. S., & Barto, A. G. (2018). *Reinforcement learning: An introduction* (2nd ed.). MIT Press.
 
-3. Wang, Z., de Freitas, N., & Lanctot, M. (2016). Dueling network architectures for deep reinforcement learning. In *International Conference on Machine Learning* (pp. 1995–2003). PMLR.
+3. Mnih, V., Kavukcuoglu, K., & Silver, D. (2013). Playing Atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602.
 
-4. Lin, T. Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017). Focal loss for dense object detection. In *Proceedings of the IEEE International Conference on Computer Vision* (pp. 2980–2988).
+4. Wang, Z., de Freitas, N., & Lanctot, M. (2016). Dueling network architectures for deep reinforcement learning. In *International Conference on Machine Learning* (pp. 1995–2003). PMLR.
 
-5. Lundberg, S. M., & Lee, S. I. (2017). A unified approach to interpreting model predictions. Advances in Neural Information Processing Systems, 30.
+5. Lin, T. Y., Goyal, P., Girshick, R., He, K., & Dollár, P. (2017). Focal loss for dense object detection. In *Proc. IEEE International Conference on Computer Vision* (pp. 2980–2988).
 
-6. Sutton, R. S., & Barto, A. G. (2018). *Reinforcement learning: An introduction* (2nd ed.). MIT press.
+6. Lundberg, S. M., & Lee, S. I. (2017). A unified approach to interpreting model predictions. *Advances in Neural Information Processing Systems*, 30.
 
 7. Russell, S., & Norvig, P. (2020). *Artificial intelligence: A modern approach* (4th ed.). Prentice Hall.
+
+8. Goodfellow, I., Shlens, J., & Szegedy, C. (2015). Explaining and harnessing adversarial examples. In *International Conference on Learning Representations (ICLR)*.
+
+9. Carlini, N., & Wagner, D. (2017). Towards evaluating the robustness of neural networks. In *IEEE Symposium on Security and Privacy (SP)* (pp. 39–57). IEEE.
 
 ---
 
